@@ -1,0 +1,82 @@
+---
+title: "PeerAssignment"
+author: "Martin Alayon"
+date: "6/15/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The goal off this report is to create a model to predict the manner in which six participants, using accelerometers on a belt, did barbell lifts. There are 5 different ways (A,B,C,D and E) recorded in a variable named "classe" which the model should predict as a function of the accelerometers information. The data sert was obtained from [Human Activity Recognition (puc-rio.br)](http://groupware.les.inf.puc-rio.br/har).
+
+## Exploration data
+
+After downloading the data, it was loaded to explore its content.
+
+```{r Load}
+training<- read.csv("pml-training.csv")
+testing<- read.csv("pml-testing.csv")
+```
+
+There are a training and a testing data set with `r dim(training)[2]` variables and `r dim(training)[1]` and `r dim(testing)[1]` observation respectively. Some of the variables in both dataset have Nan's and were eliminated. Also, variables with participants names and date information were avoided.
+
+```{r chop}
+VIdx<-!is.na(testing[1,])  #only no NA variables
+VIdx[1:7]<-FALSE  #Eliminate 7 first variables
+training_small<-training[,VIdx]
+testing_small<-testing[,VIdx]
+```
+
+The resulting data set have the same number of observation but less variables (`r dim(training)[2]`). The variable named "classe" was treated as a factor variables with 5 levels
+
+```{r}
+table(training_small$classe)
+```
+
+## Model fitting
+
+A 10 k fold validation method was used to fit a tree model.First, "classe" variable was predicted using all others variables and importance of each variable was evaluated in order to select the most important regressors.
+
+```{r }
+library(caret)
+set.seed(666)
+train_control<-trainControl(method = "cv",number = 10)
+fit_rpart <- train(as.factor(classe)~.,data = training_small,trControl=train_control,method ="rpart",tuneLength=80)
+par(mfrow=c(1,2),cex=0.6)
+barplot(fit_rpart$finalModel$variable.importance,ylab = "Variable importance",las=2,main = "Variable importance")
+barplot(cumsum(fit_rpart$finalModel$variable.importance)/sum(fit_rpart$finalModel$variable.importance),
+        ylab = "relative Variable importance",las=2,main = "Acumulative sum of Variable importance")
+abline(h=0.9)
+```
+
+The horizontal line shows 90% of the relative importance. Next, in order to build a simpler model, a tree was fitted using only the 90% most important variables.
+
+```{r}
+Idx<-cumsum(fit_rpart$finalModel$variable.importance)/sum(fit_rpart$finalModel$variable.importance)<0.9
+reg<-c(names(fit_rpart$finalModel$variable.importance[Idx]),"classe")
+fit_rpart90 <- train(as.factor(classe)~.,data = training_small[,reg],trControl=train_control,
+                   method ="rpart",tuneLength=80)
+rbind(fit_rpart$results[1,],fit_rpart90$results[1,])
+```
+
+Although some accuracy is lost, it is not too much and the model is much more simpler.
+
+A quite high accuracy was achieved.Using the entire training data set, the confusion matrix shows very high level of accuracy, sensitivity and specificity.
+
+```{r}
+y<-predict(fit_rpart90,training_small)
+M90<-confusionMatrix(y,as.factor(training_small$classe))
+M90
+```
+
+## Conclusions
+
+-   A high level of accuracy, sensitivity and specificity was achieve.
+
+-   `r sum(Idx)` variable are enough to make high accuracy predictions.
+
+-   A tree model is a quite simple model, easy to train and tune and very fast.
